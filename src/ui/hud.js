@@ -24,6 +24,12 @@ const ICON = {
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 
+// 목적격 조사: 마지막 글자에 받침이 있으면 '을', 없으면(또는 한글이 아니면) '를'
+function eulReul(word) {
+  const code = String(word).trim().slice(-1).charCodeAt(0) - 0xac00
+  return code >= 0 && code <= 11171 && code % 28 !== 0 ? '을' : '를'
+}
+
 const TRACK_NAME = { design: '디자인 트랙', ai: 'AI 트랙', culture: '엔터컬쳐 트랙', lead: '전공 전체' }
 const COMP_SHORT = ['이슈', '씽킹', '데이터', '스토리', 'AI서비스']
 
@@ -378,7 +384,8 @@ export function createHud(root, { teams, handlers }) {
   /* ── 매 틱 갱신 ── */
   function update(s) {
     const ph = s.phase
-    el.sem.textContent = `${s.semester}학기 · 제${s.ordinal}회 전시를 향해`
+    const target = s.title ? `「${s.title}」` : '전시'
+    el.sem.textContent = `${s.semester}학기 · 제${s.ordinal}회 ${target}${eulReul(s.title || '전시')} 향해`
     el.week.textContent = `${Math.min(16, Math.floor(s.week) + 1)}주차 / 16`
     if (ph && el.phase.textContent !== ph.title) {
       el.phase.textContent = ph.title
