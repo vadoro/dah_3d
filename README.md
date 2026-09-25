@@ -5,6 +5,8 @@
 
 > 사람을 향해 연결되는 지성 · 읽고, 다정하게 답하다
 
+**바로 보기: [dah-3d.vercel.app](https://dah-3d.vercel.app)** · 전시회 장면부터: [dah-3d.vercel.app/?week=14&autostart=1&cam=gallery&warm=10](https://dah-3d.vercel.app/?week=14&autostart=1&cam=gallery&warm=10)
+
 ![원탁 중간 발표](docs/screenshots/roundtable.jpg)
 
 | D 스튜디오에서 문제 정의 | 전시 섬의 프로젝트 전시회 |
@@ -67,7 +69,9 @@ npm run build     # dist/ 에 정적 파일 생성
 npm run preview   # 빌드 결과 미리보기
 ```
 
-`dist/`는 정적 파일이라 Vercel, GitHub Pages, 학교 웹서버 어디에나 올릴 수 있습니다. Vercel에서는 저장소를 가져오면 Vite 프로젝트로 자동 인식됩니다.
+`dist/`는 정적 파일이라 Vercel, GitHub Pages, 학교 웹서버 어디에나 올릴 수 있습니다.
+
+현재 Vercel 프로젝트 `dah-3d`가 이 저장소에 연결되어 있어, 프로덕션 브랜치에 푸시하면 [dah-3d.vercel.app](https://dah-3d.vercel.app)이 자동으로 다시 배포됩니다.
 
 ### 공유 링크 파라미터
 
