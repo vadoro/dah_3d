@@ -147,7 +147,8 @@ export const DAH = {
   ].map((e, i) => ({ ...e, ordinal: i + 1, poster: `posters/${e.semester}.webp` })),
 
   // 시뮬레이션이 진행하는 학기. 전시명이 정해지면 title에 넣는다(비우면 "전시명 미정").
-  current: { semester: '2026-2', ordinal: 19, title: '' },
+  // 'AI로 여는 미래'는 임시 제목 — 공식 전시명이 확정되면 바꾼다.
+  current: { semester: '2026-2', ordinal: 19, title: 'AI로 여는 미래' },
 }
 
 export const exhibitionName = (ordinal) => `제${ordinal}회 디지털인문예술전공 프로젝트 전시회`

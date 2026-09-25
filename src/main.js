@@ -380,6 +380,7 @@ async function boot() {
       hud.update({
         semester: director.semester.semester,
         ordinal: director.semester.ordinal,
+        title: director.semester.title,
         week: director.week,
         phase: director.phase,
         teams: teams.map((_, k) => director.teamSummary(k)),
