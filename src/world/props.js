@@ -14,6 +14,9 @@ export const MAT = {
   metal: () => mat('metal', { color: '#4A4258', roughness: 0.4, metalness: 0.6 }),
   screen: () => mat('screen', { color: '#2B2142', emissive: C.primary, emissiveIntensity: 0.55, roughness: 0.3 }),
   paper: () => mat('paper', { color: '#EDE8F7', roughness: 0.9 }),
+  // 건축 모형처럼 밝은 라벤더 화이트 — 등각 디오라마의 구조물
+  model: () => mat('model', { color: '#E4DDF7', roughness: 0.65 }),
+  modelDark: () => mat('modelDark', { color: '#3A2F5C', roughness: 0.6 }),
 }
 
 function shadowed(obj) {
@@ -26,18 +29,17 @@ function shadowed(obj) {
   return obj
 }
 
-// 스탠딩 테이블 — 팀 한 곳의 중심
+// 스탠딩 테이블 — 팀 한 곳의 중심 (등각 디오라마에 맞춘 정사각 블록)
 export function standingTable(accent = C.primary, kind = 'laptop') {
   const g = new THREE.Group()
-  const top = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.05, 32), MAT.glass())
-  top.position.y = 1.0
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.012, 6, 48), new THREE.MeshBasicMaterial({ color: accent }))
-  rim.rotation.x = Math.PI / 2
-  rim.position.y = 1.03
-  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 1.0, 10), MAT.metal())
-  stem.position.y = 0.5
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.3, 0.04, 24), MAT.metal())
-  base.position.y = 0.02
+  const top = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.07, 0.96), MAT.modelDark())
+  top.position.y = 0.995
+  const rim = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.03, 1.0), new THREE.MeshBasicMaterial({ color: accent }))
+  rim.position.y = 0.95
+  const stem = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.94, 0.14), MAT.model())
+  stem.position.y = 0.47
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.06, 0.56), MAT.model())
+  base.position.y = 0.03
   g.add(top, rim, stem, base)
   if (kind === 'laptop') g.add(laptop(0.08, -0.05, 0.4), laptop(-0.14, 0.12, -2.4))
   if (kind === 'monitor') g.add(monitor())
@@ -88,17 +90,19 @@ export function sign(opts, width = 2.6) {
     new THREE.PlaneGeometry(width, width / 2),
     new THREE.MeshBasicMaterial({ map: tex, color: '#c6c2cf', transparent: true, side: THREE.DoubleSide }),
   )
-  panel.position.y = 1.9
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.4, 8), MAT.metal())
+  panel.position.set(0, 1.9, 0.05)
+  const board = new THREE.Mesh(new THREE.BoxGeometry(width + 0.12, width / 2 + 0.12, 0.08), MAT.modelDark())
+  board.position.y = 1.9
+  const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.4, 0.12), MAT.model())
   post.position.y = 0.7
-  g.add(panel, post)
-  return g
+  g.add(panel, board, post)
+  return shadowed(g)
 }
 
 // 동아리 배너(세로 깃발)
 export function clubBanner(name, field) {
   const g = new THREE.Group()
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 3.4, 8), MAT.metal())
+  const pole = new THREE.Mesh(new THREE.BoxGeometry(0.08, 3.4, 0.08), MAT.model())
   pole.position.y = 1.7
   const tex = bannerTexture(name, field)
   const flag = new THREE.Mesh(
@@ -117,24 +121,30 @@ export function clubBanner(name, field) {
   return shadowed(g)
 }
 
-// 원형 바닥 패드 — 스튜디오의 영역 표시
-export function floorPad(radius, color) {
+// 바닥 테두리 — 스튜디오 영역을 타일 격자에 맞춘 발광선으로 표시
+export function zoneFrame(halfX, halfZ, color) {
   const g = new THREE.Group()
-  const pad = new THREE.Mesh(
-    new THREE.CircleGeometry(radius, 96),
-    new THREE.MeshStandardMaterial({ color: '#1C1629', roughness: 0.6, metalness: 0.2 }),
-  )
-  pad.rotation.x = -Math.PI / 2
-  pad.position.y = 0.006
-  pad.receiveShadow = true
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(radius - 0.04, radius, 128),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, side: THREE.DoubleSide }),
-  )
-  ring.rotation.x = -Math.PI / 2
-  ring.position.y = 0.012
-  g.add(pad, ring)
+  const m = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(0.95) })
+  for (const [x, z, w, d] of [
+    [0, halfZ, halfX * 2, 0.07],
+    [0, -halfZ, halfX * 2, 0.07],
+    [halfX, 0, 0.07, halfZ * 2],
+    [-halfX, 0, 0.07, halfZ * 2],
+  ]) {
+    const e = new THREE.Mesh(new THREE.BoxGeometry(w, 0.03, d), m)
+    e.position.set(x, 0.015, z)
+    g.add(e)
+  }
   return g
+}
+
+// 받침대 블록
+export function pedestal(w, h, d, material = MAT.model()) {
+  const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material)
+  b.position.y = h / 2
+  b.castShadow = true
+  b.receiveShadow = true
+  return b
 }
 
 // 팀 프로토타입 화면 — 진행도에 따라 UI 요소가 하나씩 채워진다

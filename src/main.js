@@ -8,7 +8,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 
-import { CAMERA_PRESETS, SPEEDS } from './config.js'
+import { CAMERA_PRESETS, SPEEDS, ISO } from './config.js'
 import { DAH, exhibitionName } from './data/dah.js'
 import { professors, students, teams, visitors, TRACK_COLORS, HAIR } from './data/cast.js'
 import { PHASES, LINES } from './data/script.js'
@@ -57,18 +57,34 @@ async function boot() {
   document.getElementById('labels').appendChild(labelRenderer.domElement)
 
   const scene = new THREE.Scene()
-  const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 900)
-  camera.position.set(38, 46, 78)
+  // 등각(isometric) 시점: 원근이 없는 직교 카메라
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 420)
+  const fitFrustum = () => {
+    // 세로 화면(휴대폰)에서는 가로 폭이 너무 좁아지지 않도록 시야를 넓힌다
+    const aspect = innerWidth / innerHeight
+    const h = (ISO.viewHeight / 2) * Math.max(1, 0.75 / aspect)
+    const w = h * aspect
+    camera.left = -w
+    camera.right = w
+    camera.top = h
+    camera.bottom = -h
+    camera.updateProjectionMatrix()
+  }
+  fitFrustum()
+  camera.zoom = 0.62
 
+  // 드래그 = 이동, 휠·핀치 = 확대. 회전은 Q/E 키와 도크 버튼으로 90°씩.
   const controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = true
-  controls.dampingFactor = 0.08
-  controls.maxPolarAngle = 1.48
-  controls.minDistance = 3
-  controls.maxDistance = 150
-  controls.target.set(0, 0, -8)
-  controls.autoRotate = true
-  controls.autoRotateSpeed = 0.35
+  controls.dampingFactor = 0.1
+  controls.enableRotate = false
+  controls.screenSpacePanning = false
+  controls.zoomToCursor = true
+  controls.minZoom = ISO.minZoom
+  controls.maxZoom = ISO.maxZoom
+  controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }
+  controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN }
+  controls.target.set(0, 0, -14)
 
   const composer = new EffectComposer(renderer)
   composer.addPass(new RenderPass(scene, camera))
@@ -79,7 +95,8 @@ async function boot() {
   /* ── 세계 ── */
   const env = buildEnvironment(scene)
   if (lowPower) env.keyLight.shadow.mapSize.set(1024, 1024)
-  const world = buildZones(scene, teams)
+  const view = { az: ISO.baseAzimuth }
+  const world = buildZones(scene, teams, view)
   world.zones.agora.camera = camera
   const fx = new FX(scene, teams)
 
@@ -167,7 +184,7 @@ async function boot() {
         const center = g ? g.center : members[0].position
         setAuto(false)
         unfollow()
-        rig.closeUp(center.clone(), 7.5, 3.6)
+        rig.closeUp(center.clone(), 3.0)
       },
       onFollow: () => {
         if (!state.selected) return
@@ -178,6 +195,7 @@ async function boot() {
           hud.setFollowing(true)
         }
       },
+      onRotate: (dir) => rig.rotate(dir),
       onCloseInspector: deselect,
       onLogClick: (entry) => entry.agent && select(entry.agent, true),
     },
@@ -242,7 +260,7 @@ async function boot() {
     if (rig.follow && rig.follow !== agent) unfollow()
     if (focus) {
       setAuto(false)
-      rig.closeUp(agent.position.clone(), 6.5, 3)
+      rig.closeUp(agent.position.clone(), 3.4)
     }
   }
   function deselect() {
@@ -255,7 +273,9 @@ async function boot() {
   function start() {
     if (state.started) return
     state.started = true
-    controls.autoRotate = false
+    // 소개 화면 뒤에서 천천히 돌던 디오라마를 가장 가까운 등각 방향에 맞춘다
+    const q = Math.PI / 2
+    rig.azTarget = ISO.baseAzimuth + Math.round((rig.azimuth - ISO.baseAzimuth) / q) * q
     setPlaying(params.get('paused') !== '1')
     const ph = director.phase ?? PHASES[0]
     auto.phase = ph
@@ -265,6 +285,10 @@ async function boot() {
       rig.preset(cam, 0.01)
     } else rig.preset(ph.camera === 'agora' ? 'overview' : ph.camera, 3)
     auto.timer = 5
+    if (!state.warming) announce()
+  }
+  function announce() {
+    const ph = director.phase ?? PHASES[0]
     hud.toast(`${director.semester.semester}학기 · ${Math.floor(director.week) + 1}주차`, ph.title)
   }
 
@@ -320,14 +344,15 @@ async function boot() {
   })
 
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'Space' && !e.target.closest('input, textarea') && state.started) {
+    if (e.target.closest('input, textarea')) return
+    if (e.code === 'Space' && state.started) {
       e.preventDefault()
       setPlaying(!state.playing)
-    }
+    } else if (e.code === 'KeyQ') rig.rotate(-1)
+    else if (e.code === 'KeyE') rig.rotate(1)
   })
   window.addEventListener('resize', () => {
-    camera.aspect = innerWidth / innerHeight
-    camera.updateProjectionMatrix()
+    fitFrustum()
     renderer.setSize(innerWidth, innerHeight)
     labelRenderer.setSize(innerWidth, innerHeight)
     composer.setSize(innerWidth, innerHeight)
@@ -347,7 +372,7 @@ async function boot() {
       const g = (rich.length ? rich : live)[Math.floor(Math.random() * (rich.length ? rich.length : live.length))]
       if (g) {
         const focus = g.id === 'all' ? g.active.speaker.position.clone() : g.center.clone()
-        rig.closeUp(focus, g.id === 'all' ? 7 : 8, 3.6)
+        rig.closeUp(focus, g.id === 'all' ? 3.4 : 3.0)
       } else auto.timer = 1
     } else if (auto.phase) rig.preset(auto.phase.camera, 2.4)
     closeUpNext = !closeUpNext
@@ -360,7 +385,8 @@ async function boot() {
   timer.connect(document)
   let hudTick = 0
   let elapsed = 0
-  const stars = scene.getObjectByName('stars')
+  const drawSize = new THREE.Vector2()
+  const labelsEl = document.getElementById('labels')
 
   function frame(ts) {
     timer.update(ts)
@@ -369,8 +395,12 @@ async function boot() {
     director.update(dt, state.speed, state.playing && state.started)
     world.update(dt, elapsed, director.simState)
     fx.update(dt, elapsed)
-    if (stars) stars.rotation.y += dt * 0.004
+    if (!state.started) rig.azTarget += dt * 0.12
     rig.update(dt)
+    view.az = rig.azimuth
+    env.setAzimuth(rig.azimuth)
+    renderer.getDrawingBufferSize(drawSize)
+    fx.setScale((drawSize.y * camera.zoom) / (camera.top - camera.bottom))
     updateAutoCam(dt)
     controls.update()
 
@@ -385,7 +415,10 @@ async function boot() {
         phase: director.phase,
         teams: teams.map((_, k) => director.teamSummary(k)),
       })
-      for (const a of agents) a.el.classList.toggle('far', camera.position.distanceTo(a.position) > 60)
+      // 멀리서 볼 때는 이름표를 숨기고 말풍선을 작게
+      const far = camera.zoom < 1.15
+      for (const a of agents) a.el.classList.toggle('far', far)
+      labelsEl.style.setProperty('--label-scale', THREE.MathUtils.clamp(0.55 + camera.zoom * 0.2, 0.7, 1.05).toFixed(2))
     }
 
     if (state.bloom) composer.render()
@@ -399,11 +432,13 @@ async function boot() {
   requestAnimationFrame(frame)
   document.getElementById('loading').classList.add('hide')
 
-  if (params.get('autostart') === '1') start()
-  else hud.openIntro(true)
-
   // ?warm=초 — 시작 직후 그만큼 시뮬레이션을 미리 돌린다(시연 링크 · 스크린샷용)
   const warm = Math.min(120, Number(params.get('warm')) || 0)
+  if (params.get('autostart') === '1') {
+    state.warming = warm > 0 // 시작 안내는 미리 돌린 뒤의 주차로 띄운다
+    start()
+  } else hud.openIntro(true)
+
   if (warm && state.started) {
     state.warming = true
     for (let t = 0; t < warm; t += 0.05) {
@@ -412,6 +447,7 @@ async function boot() {
       fx.update(0.05, t)
     }
     state.warming = false
+    announce()
   }
 
   // 디버그 · 스크린샷 자동화용
