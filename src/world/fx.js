@@ -6,6 +6,7 @@ import { glowTexture } from './textures.js'
 // 좋은 아이디어는 별이 되어 원탁 위 하늘에 팀별 별자리를 만든다.
 
 const VERT = /* glsl */ `
+uniform float pxPerUnit;
 attribute float size;
 attribute float alpha;
 attribute vec3 pcolor;
@@ -13,7 +14,8 @@ varying float vAlpha;
 varying vec3 vColor;
 void main() {
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  gl_PointSize = size * (320.0 / -mv.z);
+  // 직교(등각) 카메라: 화면 픽셀 / 월드 단위로 크기를 정한다
+  gl_PointSize = size * pxPerUnit;
   gl_Position = projectionMatrix * mv;
   vAlpha = alpha;
   vColor = pcolor;
@@ -37,7 +39,7 @@ function pointCloud(n, map) {
   geo.setAttribute('size', new THREE.BufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage))
   geo.setAttribute('alpha', new THREE.BufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage))
   const mat = new THREE.ShaderMaterial({
-    uniforms: { map: { value: map } },
+    uniforms: { map: { value: map }, pxPerUnit: { value: 20 } },
     vertexShader: VERT,
     fragmentShader: FRAG,
     transparent: true,
@@ -224,6 +226,14 @@ export class FX {
     this.lastStar = this.teams.map(() => null)
     this.counts = this.teams.map(() => 0)
     for (const p of this.pool) p.active = false
+  }
+
+  // 직교 카메라의 확대 배율이 바뀌면 입자 크기(픽셀)를 맞춘다
+  // (입자 size 값은 원근 시점 시절의 단위라 0.36배로 맞춘다)
+  setScale(pxPerUnit) {
+    const v = pxPerUnit * 0.36
+    this.particles.material.uniforms.pxPerUnit.value = v
+    this.stars.material.uniforms.pxPerUnit.value = v
   }
 
   update(dt, t) {

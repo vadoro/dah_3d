@@ -3,8 +3,8 @@ import { C, LAYOUT } from '../config.js'
 import { DAH, exhibitionName } from '../data/dah.js'
 import { letterMesh, MOTIF } from './letters.js'
 import { glow } from './environment.js'
-import { standingTable, sign, clubBanner, floorPad, deviceCanvas, drawDevice, deviceMesh, MAT } from './props.js'
-import { makeCanvas, toTexture, font, roundRect, wrapText, glowTexture, captionTexture } from './textures.js'
+import { standingTable, sign, clubBanner, zoneFrame, pedestal, deviceCanvas, drawDevice, deviceMesh, MAT } from './props.js'
+import { makeCanvas, toTexture, font, roundRect, wrapText, captionTexture } from './textures.js'
 
 const V = (x, z, y = 0) => new THREE.Vector3(x, y, z)
 const lerp = THREE.MathUtils.lerp
@@ -40,6 +40,31 @@ function spotsFor(center, forward, right, front = 2.4, back = 2.2, side = 2.6) {
   return [at(front, -side), at(front, side), at(-back, -side), at(-back, side)]
 }
 
+/* ── 등각 시점 도우미 ──
+   facer   : 시점을 90°씩 돌려도 늘 정면이 보이도록 카메라 쪽으로 도는 표지물(큰 글자 · 표지판 · 깃발)
+   cutaway : 카메라와 공간 사이를 가리는 쪽에 오면 흐려지는 구조물(벽 · 게이트 · 서버랙) — 등각 게임의 컷어웨이 */
+function facer(obj, offset = 0) {
+  return { obj, offset }
+}
+function cutaway(obj, dirX, dirZ) {
+  return { obj, dir: { x: dirX, z: dirZ }, alpha: 1 }
+}
+function setFade(obj, alpha) {
+  obj.traverse((o) => {
+    if (!o.isMesh || !o.material) return
+    if (!o.userData.fadeMat) {
+      o.material = o.material.clone()
+      o.userData.fadeMat = true
+      o.userData.baseOpacity = o.material.opacity ?? 1
+      o.userData.baseTransparent = o.material.transparent
+    }
+    o.material.transparent = alpha < 0.999 || o.userData.baseTransparent
+    o.material.opacity = o.userData.baseOpacity * alpha
+    o.material.depthWrite = alpha > 0.6
+    o.castShadow = alpha > 0.6
+  })
+}
+
 /* ───────────────────────── 아고라: 원탁 · 홀로그램 · 패널 ───────────────────────── */
 function buildAgora() {
   const g = new THREE.Group()
@@ -54,14 +79,14 @@ function buildAgora() {
   const rim = new THREE.Mesh(new THREE.TorusGeometry(R, 0.03, 8, 160), new THREE.MeshBasicMaterial({ color: glow(C.light, 2.2) }))
   rim.rotation.x = Math.PI / 2
   rim.position.y = 0.845
-  const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.85, 0.8, 32), MAT.metal())
+  const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.9, 0.8, 8), MAT.model())
   ped.position.y = 0.4
   const core = new THREE.Mesh(
     new THREE.CylinderGeometry(0.45, 0.45, 0.04, 48),
     new THREE.MeshBasicMaterial({ color: glow(C.primary, 2.5) }),
   )
   core.position.y = 0.86
-  g.add(shadow(top), rim, shadow(ped), core)
+  g.add(shadow(top), rim, shadow(ped), core, zoneFrame(5, 5, C.light))
 
   // 광선 원뿔 + D·A·H 홀로그램 (모티브 3색)
   const beam = new THREE.Mesh(
@@ -196,31 +221,32 @@ function buildD(teams) {
   const c = LAYOUT.zones.D.center
   const color = MOTIF.D
   const g = new THREE.Group()
-  g.add(place(floorPad(6.6, color), c))
+  g.add(place(zoneFrame(6, 6, color), c))
 
-  const letter = letterMesh('D', 5.0, { depth: 0.35, emissive: 0.8 })
-  // 기본 시점과 스튜디오 시점 모두에서 읽히도록 아고라 앞쪽을 향해 살짝 돌려 세운다
-  g.add(shadow(place(letter, V(c.x - 6.7, c.z - 0.6), 1.05)))
+  // 받침대 위의 큰 D — 시점을 돌려도 정면이 보이도록 카메라 쪽으로 돈다
+  const letterGroup = new THREE.Group()
+  letterGroup.add(pedestal(3.4, 0.45, 1.1, MAT.modelDark()))
+  const letter = letterMesh('D', 4.6, { depth: 0.6, emissive: 0.8 })
+  letter.position.y = 0.45
+  letterGroup.add(letter)
+  g.add(shadow(place(letterGroup, V(c.x - 6.7, c.z - 0.6))))
+  const wallGroup = new THREE.Group()
+  g.add(wallGroup)
 
-  // 열린 곡선 유리벽 (아고라 쪽이 열려 있다 — "먼저 듣고 열어 두고 안으로 초대하는 구조")
+  // 열린 곡선 벽 (아고라 쪽이 열려 있다 — "먼저 듣고 열어 두고 안으로 초대하는 구조")
   const R = 5.3
   const H = 2.8
   const t0 = THREE.MathUtils.degToRad(195)
   const tl = THREE.MathUtils.degToRad(150)
+  // 열 개의 면으로 꺾인 곡선 — 등각 시점에서 면마다 밝기가 달라 입체가 또렷하다
   const wall = new THREE.Mesh(
-    new THREE.CylinderGeometry(R, R, H, 72, 1, true, t0, tl),
-    new THREE.MeshStandardMaterial({
-      color: '#2A2140',
-      transparent: true,
-      opacity: 0.5,
-      side: THREE.DoubleSide,
-      roughness: 0.25,
-      metalness: 0.1,
-      depthWrite: false,
-    }),
+    new THREE.CylinderGeometry(R, R, H, 10, 1, true, t0, tl),
+    new THREE.MeshStandardMaterial({ color: '#4A3D73', side: THREE.DoubleSide, roughness: 0.7, flatShading: true }),
   )
   wall.position.set(c.x, H / 2, c.z)
-  g.add(wall)
+  wall.castShadow = true
+  wall.receiveShadow = true
+  wallGroup.add(wall)
   for (const y of [H, 0.03]) {
     const pts = []
     for (let i = 0; i <= 48; i++) {
@@ -231,7 +257,7 @@ function buildD(teams) {
       new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 96, 0.03, 6, false),
       new THREE.MeshBasicMaterial({ color: glow(color, 1.8) }),
     )
-    g.add(tube)
+    wallGroup.add(tube)
   }
 
   // 포스트잇: 팀마다 벽의 한 구간(30장). 구간 순서(θ 195°→345°) = [0번 팀, 2번 팀, 3번 팀, 1번 팀]
@@ -252,7 +278,7 @@ function buildD(teams) {
       const row = Math.floor(k / 6)
       const th = t0 + tl * ((s + (col + 0.5) / 6) / 4) + (rand(i) - 0.5) * 0.02
       const y = 0.85 + row * 0.36 + (rand(i + 9) - 0.5) * 0.06
-      const r = R - 0.07
+      const r = R - 0.12
       const pos = V(c.x + r * Math.sin(th), c.z + r * Math.cos(th), y)
       const q = new THREE.Quaternion().setFromEuler(
         new THREE.Euler(0, Math.atan2(-Math.sin(th), -Math.cos(th)), (rand(i + 3) - 0.5) * 0.3, 'YXZ'),
@@ -278,26 +304,21 @@ function buildD(teams) {
   }
   for (let i = 0; i < PER * 4; i++) writeNote(i)
   notes.instanceMatrix.needsUpdate = true
-  g.add(notes)
+  wallGroup.add(notes)
 
   const spots = spotsFor(c, V(1, 0), V(0, 1), 2.4, 2.1)
   spots.forEach((p) => g.add(place(standingTable(color, 'sketch'), p)))
 
-  g.add(
-    place(
-      sign({
-        letter: 'D',
-        title: 'D 스튜디오',
-        subtitle: '디자인 트랙 · 문제 정의',
-        lines: ['경험 디자인 · 사회혁신디자인 · AI디자인', '"먼저 듣고 열어 두고 안으로 초대하는 구조"'],
-        accent: color,
-      }),
-      V(c.x + 5.4, c.z + 5.4),
-      Math.PI * 0.62,
-    ),
-  )
-  g.add(place(clubBanner('더 인스튜디오', 'UX·UI'), V(c.x - 1.2, c.z - 5.9), 0.2))
-  g.add(place(clubBanner('I-SO', '시각디자인'), V(c.x - 1.2, c.z + 5.9), Math.PI - 0.2))
+  const dSign = sign({
+    letter: 'D',
+    title: 'D 스튜디오',
+    subtitle: '디자인 트랙 · 문제 정의',
+    lines: ['경험 디자인 · 사회혁신디자인 · AI디자인', '"먼저 듣고 열어 두고 안으로 초대하는 구조"'],
+    accent: color,
+  })
+  const flag1 = clubBanner('더 인스튜디오', 'UX·UI')
+  const flag2 = clubBanner('I-SO', '시각디자인')
+  g.add(place(dSign, V(c.x + 5.4, c.z + 5.4)), place(flag1, V(c.x - 1.2, c.z - 5.9)), place(flag2, V(c.x - 1.2, c.z + 5.9)))
 
   const light = new THREE.PointLight(color, 25, 14, 2)
   light.position.set(c.x - 1, 4, c.z)
@@ -308,7 +329,8 @@ function buildD(teams) {
     center: c,
     group: g,
     spots,
-    tableKind: 'sketch',
+    facers: [facer(letterGroup), facer(dSign), facer(flag1), facer(flag2)],
+    cutaways: [cutaway(letterGroup, -1, 0), cutaway(wallGroup, -1, 0)],
     update(dt, t, sim) {
       let dirty = false
       for (let tIdx = 0; tIdx < 4; tIdx++) {
@@ -336,15 +358,39 @@ function buildA(teams) {
   const c = LAYOUT.zones.A.center
   const color = MOTIF.A
   const g = new THREE.Group()
-  g.add(place(floorPad(6.6, color), c))
+  g.add(place(zoneFrame(6, 6, color), c))
 
-  const letter = letterMesh('A', 5.6, { depth: 0.35, emissive: 0.8 })
-  g.add(shadow(place(letter, V(c.x + 6.8, c.z - 0.6), -1.05)))
+  // 큰 A와 서버랙은 기본 시점에서 랩 안쪽을 가리지 않도록 랩의 북쪽(-z) 가장자리에 세운다
+  const letterGroup = new THREE.Group()
+  letterGroup.add(pedestal(3.4, 0.45, 1.1, MAT.modelDark()))
+  const letter = letterMesh('A', 4.8, { depth: 0.6, emissive: 0.8 })
+  letter.position.y = 0.45
+  letterGroup.add(letter)
+  g.add(shadow(place(letterGroup, V(c.x + 1.4, c.z - 6.3))))
+  const racks = new THREE.Group()
+  const lightMat = new THREE.MeshBasicMaterial({ color: glow(color, 1.6) })
+  for (const [dx, dz] of [
+    [5.4, -5.6],
+    [-3.2, -5.6],
+  ]) {
+    const rack = new THREE.Group()
+    rack.add(pedestal(1.0, 2.6, 1.0, MAT.modelDark()))
+    for (let k = 0; k < 6; k++) {
+      for (const side of [1, -1]) {
+        const led = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.05, 0.02), lightMat)
+        led.position.set(0, 0.45 + k * 0.36, side * 0.51)
+        rack.add(led)
+      }
+    }
+    rack.position.set(c.x + dx, 0, c.z + dz)
+    racks.add(rack)
+  }
+  g.add(shadow(racks))
 
   const holo = new THREE.Group()
   holo.position.set(c.x + 4.5, 0, c.z)
   g.add(holo)
-  const disc = new THREE.Mesh(new THREE.CylinderGeometry(1.45, 1.55, 0.08, 48), new THREE.MeshBasicMaterial({ color: C.deep }))
+  const disc = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.08, 2.8), new THREE.MeshBasicMaterial({ color: C.deep }))
   disc.position.y = 0.04
   holo.add(disc)
 
@@ -377,7 +423,7 @@ function buildA(teams) {
     const s = Math.sqrt(1 - u * u)
     nodePos.push(new THREE.Vector3(r * s * Math.cos(th), r * u * 0.8, r * s * Math.sin(th)))
   }
-  const nodes = new THREE.InstancedMesh(new THREE.SphereGeometry(0.065, 10, 8), new THREE.MeshBasicMaterial({ color: C.light }), NODES)
+  const nodes = new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), new THREE.MeshBasicMaterial({ color: C.light }), NODES)
   net.add(nodes)
   const edges = []
   for (let i = 0; i < NODES; i++) for (let j = 0; j < i; j++) if (nodePos[i].distanceTo(nodePos[j]) < 0.75) edges.push([i, j])
@@ -394,20 +440,15 @@ function buildA(teams) {
   const spots = spotsFor(c, V(-1, 0), V(0, -1), 2.4, 2.1)
   spots.forEach((p) => g.add(place(standingTable(color, 'monitor'), p, yawTo(p, c.clone().add(V(-6, 0))))))
 
-  g.add(
-    place(
-      sign({
-        letter: 'A',
-        title: 'A 랩',
-        subtitle: 'AI 트랙 · 해결안 설계',
-        lines: ['빅데이터인문학 · 인문데이터마이닝', '"흩어진 데이터와 생각을 새로운 가능성으로"'],
-        accent: color,
-      }),
-      V(c.x - 5.4, c.z + 5.4),
-      -Math.PI * 0.62,
-    ),
-  )
-  g.add(place(clubBanner('DS4H', '데이터'), V(c.x + 1.2, c.z - 5.9), -0.2))
+  const aSign = sign({
+    letter: 'A',
+    title: 'A 랩',
+    subtitle: 'AI 트랙 · 해결안 설계',
+    lines: ['빅데이터인문학 · 인문데이터마이닝', '"흩어진 데이터와 생각을 새로운 가능성으로"'],
+    accent: color,
+  })
+  const flag = clubBanner('DS4H', '데이터')
+  g.add(place(aSign, V(c.x - 5.4, c.z + 5.4)), place(flag, V(c.x + 5.6, c.z + 5.6)))
 
   const light = new THREE.PointLight(color, 25, 14, 2)
   light.position.set(c.x + 1, 4, c.z)
@@ -423,6 +464,8 @@ function buildA(teams) {
     center: c,
     group: g,
     spots,
+    facers: [facer(letterGroup), facer(aSign), facer(flag)],
+    cutaways: [cutaway(letterGroup, 0, -1), cutaway(racks, 0, -1)],
     update(dt, t, sim) {
       for (let i = 0; i < BARS; i++) {
         const pr = sim.progress[Math.floor(i / 3)]
@@ -493,19 +536,21 @@ function buildH(teams) {
   const c = LAYOUT.zones.H.center
   const color = MOTIF.H
   const g = new THREE.Group()
-  g.add(place(floorPad(6.6, color), c))
+  g.add(place(zoneFrame(6, 6, color), c))
 
   const gateZ = c.z - 6.4
-  const gate = letterMesh('H', 8.0, { depth: 0.5, emissive: 0.8 })
-  g.add(shadow(place(gate, V(0, gateZ))))
+  const gateGroup = new THREE.Group()
+  g.add(gateGroup)
+  const gate = letterMesh('H', 8.0, { depth: 0.8, emissive: 0.8 })
+  gateGroup.add(shadow(place(gate, V(0, gateZ))))
 
   // H 윗칸은 스토리보드 스크린, 아랫칸은 전시 섬으로 가는 통로
   const back = new THREE.Mesh(
     new THREE.PlaneGeometry(7.2, 3.3),
     new THREE.MeshStandardMaterial({ color: C.bg2, roughness: 0.6, transparent: true, opacity: 0.85 }),
   )
-  back.position.set(0, 6.05, gateZ - 0.05)
-  g.add(back)
+  back.position.set(0, 6.05, gateZ + 0.4)
+  gateGroup.add(back)
   const frames = []
   teams.forEach((team, i) => {
     for (let n = 0; n < 2; n++) {
@@ -513,8 +558,8 @@ function buildH(teams) {
         new THREE.PlaneGeometry(1.55, 1.1),
         new THREE.MeshBasicMaterial({ map: storyboardCanvas(team, n), color: '#a9a4b4', transparent: true, opacity: 0.08 }),
       )
-      m.position.set(-2.7 + i * 1.8, 6.8 - n * 1.45, gateZ + 0.02)
-      g.add(m)
+      m.position.set(-2.7 + i * 1.8, 6.8 - n * 1.45, gateZ + 0.42)
+      gateGroup.add(m)
       frames.push({ mesh: m, team: i, n })
     }
   })
@@ -557,20 +602,15 @@ function buildH(teams) {
   shelf.add(books)
   g.add(shadow(place(shelf, V(5.4, c.z - 1.2), -Math.PI / 2 + 0.35)))
 
-  g.add(
-    place(
-      sign({
-        letter: 'H',
-        title: 'H 스테이지',
-        subtitle: '엔터컬쳐 트랙 · 스토리텔링',
-        lines: ['스토리텔링 · K-콘텐츠 · 문화원형', '"서로 다른 세계 사이에 다리를 놓는 대화"'],
-        accent: C.light,
-      }),
-      V(-5.6, c.z + 5.2),
-      Math.PI * 0.2,
-    ),
-  )
-  g.add(place(clubBanner('CON:NECT', '콘텐츠'), V(5.8, c.z + 3.2), -0.4))
+  const hSign = sign({
+    letter: 'H',
+    title: 'H 스테이지',
+    subtitle: '엔터컬쳐 트랙 · 스토리텔링',
+    lines: ['스토리텔링 · K-콘텐츠 · 문화원형', '"서로 다른 세계 사이에 다리를 놓는 대화"'],
+    accent: C.light,
+  })
+  const flag = clubBanner('CON:NECT', '콘텐츠')
+  g.add(place(hSign, V(-5.6, c.z + 5.2)), place(flag, V(5.8, c.z + 3.2)))
 
   const light = new THREE.PointLight(color, 30, 16, 2)
   light.position.set(0, 4.5, c.z - 2)
@@ -581,6 +621,8 @@ function buildH(teams) {
     center: c,
     group: g,
     spots,
+    facers: [facer(hSign), facer(flag)],
+    cutaways: [cutaway(gateGroup, 0, -1)],
     update(dt, t, sim) {
       for (const f of frames) {
         const p = sim.progress[f.team][3]
@@ -607,8 +649,7 @@ function mapTexture() {
   const canvas = makeCanvas(S, S)
   const ctx = canvas.getContext('2d')
   ctx.save()
-  ctx.beginPath()
-  ctx.arc(S / 2, S / 2, S / 2 - 4, 0, Math.PI * 2)
+  roundRect(ctx, 4, 4, S - 8, S - 8, 40)
   ctx.clip()
   ctx.fillStyle = 'rgba(33,26,49,0.9)'
   ctx.fillRect(0, 0, S, S)
@@ -652,8 +693,7 @@ function mapTexture() {
   ctx.restore()
   ctx.strokeStyle = C.primary
   ctx.lineWidth = 8
-  ctx.beginPath()
-  ctx.arc(S / 2, S / 2, S / 2 - 6, 0, Math.PI * 2)
+  roundRect(ctx, 6, 6, S - 12, S - 12, 40)
   ctx.stroke()
   ctx.fillStyle = C.text
   ctx.font = font(800, 44)
@@ -668,14 +708,13 @@ function mapTexture() {
 function buildField(teams) {
   const c = LAYOUT.zones.field.center
   const g = new THREE.Group()
-  const ped = new THREE.Mesh(new THREE.CylinderGeometry(2.95, 3.15, 0.7, 64), MAT.dark())
-  ped.position.set(c.x, 0.35, c.z)
-  g.add(shadow(ped))
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(2.95, 0.035, 8, 128), new THREE.MeshBasicMaterial({ color: glow(C.primary, 2.5) }))
-  rim.rotation.x = Math.PI / 2
-  rim.position.set(c.x, 0.71, c.z)
+  g.add(place(zoneFrame(8, 6, C.light), c))
+  const ped = new THREE.Group()
+  ped.add(pedestal(6.1, 0.7, 6.1, MAT.modelDark()))
+  g.add(place(ped, c))
+  const rim = place(zoneFrame(3.05, 3.05, glow(C.primary, 1.8)), V(c.x, c.z, 0.7))
   g.add(rim)
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(2.8, 96), new THREE.MeshBasicMaterial({ map: mapTexture(), transparent: true }))
+  const disc = new THREE.Mesh(new THREE.PlaneGeometry(5.6, 5.6), new THREE.MeshBasicMaterial({ map: mapTexture(), transparent: true }))
   disc.rotation.x = -Math.PI / 2
   disc.position.set(c.x, 0.72, c.z)
   g.add(disc)
@@ -699,7 +738,7 @@ function buildField(teams) {
   })
 
   const globe = new THREE.Mesh(
-    new THREE.SphereGeometry(0.75, 24, 16),
+    new THREE.IcosahedronGeometry(0.8, 1),
     new THREE.MeshBasicMaterial({ color: C.light, wireframe: true, transparent: true, opacity: 0.28 }),
   )
   globe.position.set(c.x, 3.0, c.z - 0.6)
@@ -707,25 +746,22 @@ function buildField(teams) {
 
   const spots = spotsFor(c, V(0, -1), V(-1, 0), 2.5, 2.6, 4.5)
   spots.forEach((p) => g.add(place(standingTable(C.light, 'sketch'), p)))
-  g.add(
-    place(
-      sign({
-        letter: '◎',
-        title: '이슈 맵',
-        subtitle: '문제 발굴 · 지역과 글로벌',
-        lines: ['문제를 사람의 경험으로 다시 살펴보기', '"남들이 그냥 지나친 불편을 알아보는 눈"'],
-        accent: C.light,
-      }),
-      V(c.x + 6.8, c.z + 1.6),
-      Math.PI * 0.5 - 0.5,
-    ),
-  )
+  const fSign = sign({
+    letter: '◎',
+    title: '이슈 맵',
+    subtitle: '문제 발굴 · 지역과 글로벌',
+    lines: ['문제를 사람의 경험으로 다시 살펴보기', '"남들이 그냥 지나친 불편을 알아보는 눈"'],
+    accent: C.light,
+  })
+  g.add(place(fSign, V(c.x + 6.8, c.z + 1.6)))
 
   return {
     id: 'field',
     center: c,
     group: g,
     spots,
+    facers: [facer(fSign)],
+    cutaways: [],
     update(dt, t, sim) {
       pins.forEach((p, i) => {
         const pr = clamp01(sim.progress[i][0] * 1.1)
@@ -744,7 +780,7 @@ function buildField(teams) {
   }
 }
 
-/* ───────────────────────── 전시 섬: 18회의 포스터 나선 · 이번 학기 작품 ───────────────────────── */
+/* ───────────────────────── 전시 섬: ㄷ자 포스터 벽 · 가운데 이번 학기 전시 토템 ───────────────────────── */
 function generatedPoster({ ordinal, semester, title }) {
   const W = 512
   const H = 724
@@ -797,12 +833,40 @@ function generatedPoster({ ordinal, semester, title }) {
 
 function buildGallery(teams) {
   const c = LAYOUT.zones.gallery.center
+  const half = LAYOUT.galleryHalf
   const g = new THREE.Group()
   const loader = new THREE.TextureLoader()
   const posters = []
   const pickables = []
 
-  function makePoster(ex, texture, isCurrent = false) {
+  // 디귿자 전시 벽(왼쪽 · 뒤 · 오른쪽). 입구(앞쪽)는 다리와 이어져 열려 있다.
+  // 카메라 쪽으로 오는 벽은 컷어웨이로 흐려져 안이 보인다.
+  const WALL_H = 3.6
+  const walls = {
+    left: { pos: V(c.x - (half - 1), c.z - 1.5), size: [0.35, WALL_H, 20], inward: V(1, 0), out: [-1, 0] },
+    back: { pos: V(c.x, c.z - (half - 1.2)), size: [24.35, WALL_H, 0.35], inward: V(0, 1), out: [0, -1] },
+    right: { pos: V(c.x + (half - 1), c.z - 1.5), size: [0.35, WALL_H, 20], inward: V(-1, 0), out: [1, 0] },
+  }
+  for (const w of Object.values(walls)) {
+    w.group = new THREE.Group()
+    const m = new THREE.Mesh(new THREE.BoxGeometry(...w.size), MAT.model())
+    m.position.copy(w.pos).setY(WALL_H / 2)
+    const capLine = new THREE.Mesh(
+      new THREE.BoxGeometry(w.size[0] + 0.02, 0.06, w.size[2] + 0.02),
+      new THREE.MeshBasicMaterial({ color: glow(C.primary, 1.8) }),
+    )
+    capLine.position.copy(w.pos).setY(WALL_H + 0.03)
+    w.group.add(shadow(m), capLine)
+    g.add(w.group)
+  }
+
+  // 벽면 자리: 왼쪽 벽 앞→뒤 9칸, 뒤 벽 왼→오 9칸, 오른쪽 벽 뒤→앞 9칸
+  const slots = []
+  for (let i = 0; i < 9; i++) slots.push({ wall: 'left', pos: V(c.x - (half - 1) + 0.24, c.z + 7.4 - i * 2.1) })
+  for (let i = 0; i < 9; i++) slots.push({ wall: 'back', pos: V(c.x - 9.6 + i * 2.4, c.z - (half - 1.2) + 0.24) })
+  for (let i = 0; i < 9; i++) slots.push({ wall: 'right', pos: V(c.x + (half - 1) - 0.24, c.z - 9.4 + i * 2.1) })
+
+  function posterMeshes(ex, texture) {
     const pg = new THREE.Group()
     const frame = new THREE.Mesh(new THREE.BoxGeometry(1.78, 2.5, 0.08), MAT.dark())
     frame.position.y = 1.95
@@ -817,77 +881,113 @@ function buildGallery(teams) {
       }),
     )
     cap.position.set(0, 0.42, 0.02)
-    const glow = new THREE.Mesh(
-      new THREE.PlaneGeometry(2.3, 3.1),
-      new THREE.MeshBasicMaterial({
-        map: glowTexture('rgba(129,95,215,0.9)', 'rgba(129,95,215,0)'),
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      }),
-    )
-    glow.position.set(0, 1.95, -0.08)
-    pg.add(shadow(frame), img, cap, glow)
+    pg.add(shadow(frame), img, cap)
     img.userData.pick = { type: 'poster', exhibition: ex }
     frame.userData.pick = img.userData.pick
     pickables.push(img, frame)
-    g.add(pg)
-    const entry = { group: pg, img, glow, ex, isCurrent }
+    return { pg, img }
+  }
+
+  function fitImage(img, texture) {
+    const iw = texture.image?.width || 1
+    const ih = texture.image?.height || 1
+    const aspect = iw / ih
+    let w = 1.64
+    let h = w / aspect
+    if (h > 2.36) {
+      h = 2.36
+      w = h * aspect
+    }
+    img.scale.set(w / 1.64, h / 2.36, 1)
+  }
+
+  // 아카이브 포스터를 다음 빈 벽면 자리에 건다
+  function hangOnWall(ex, texture) {
+    const archived = posters.filter((p) => !p.isCurrent).length
+    const slot = slots[Math.min(archived, slots.length - 1)]
+    const w = walls[slot.wall]
+    const { pg, img } = posterMeshes(ex, texture)
+    pg.position.copy(slot.pos)
+    pg.rotation.y = Math.atan2(w.inward.x, w.inward.z)
+    w.group.add(pg)
+    const entry = {
+      group: pg,
+      img,
+      ex,
+      isCurrent: false,
+      slotPos: slot.pos.clone(),
+      viewPos: slot.pos.clone().addScaledVector(w.inward, 2.3),
+    }
     posters.push(entry)
     return entry
   }
 
-  function fitImage(entry, texture) {
-    const iw = texture.image?.width || 1
-    const ih = texture.image?.height || 1
-    const aspect = iw / ih
-    const maxW = 1.64
-    const maxH = 2.36
-    let w = maxW
-    let h = w / aspect
-    if (h > maxH) {
-      h = maxH
-      w = h * aspect
-    }
-    entry.img.scale.set(w / maxW, h / maxH, 1)
-  }
-
   for (const ex of DAH.exhibitions) {
-    const tex = loader.load(ex.poster, (t) => fitImage(entry, t))
+    let entry = null
+    const tex = loader.load(ex.poster, (t) => entry && fitImage(entry.img, t))
     tex.colorSpace = THREE.SRGBColorSpace
     tex.anisotropy = 4
-    const entry = makePoster(ex, tex)
+    entry = hangOnWall(ex, tex)
   }
 
-  // 나선형 배치: 과거(오른쪽 앞) → 최신(왼쪽 앞)으로 돌며 조금씩 높아진다 — 쌓이는 시간
-  function layout() {
-    const total = Math.max(22, posters.length)
-    const a0 = THREE.MathUtils.degToRad(-42)
-    const a1 = THREE.MathUtils.degToRad(222)
-    posters.forEach((p, i) => {
-      const a = a0 + ((a1 - a0) * i) / (total - 1)
-      const r = 10.9
-      const pos = V(c.x + Math.cos(a) * r, c.z - Math.sin(a) * r, 0.1 + i * 0.045)
-      p.group.position.copy(pos)
-      p.group.rotation.y = yawTo(pos, V(c.x, c.z))
-      p.slotPos = pos.clone()
-      p.viewPos = pos.clone().lerp(V(c.x, c.z), 0.2).setY(0)
-    })
-  }
-
-  let current = null
-  function setCurrent(info) {
-    if (current) {
-      // 지난 학기 포스터는 아카이브로 남는다
-      current.isCurrent = false
-      current.glow.material.opacity = 0
+  // 가운데 토템: 이번 학기 전시 포스터를 네 면에 건다 — 어느 방향에서 보아도 보인다
+  const totem = new THREE.Group()
+  totem.position.copy(c)
+  totem.add(pedestal(2.7, 0.4, 2.7, MAT.modelDark()))
+  const column = new THREE.Mesh(new THREE.BoxGeometry(2.0, 4.4, 2.0), MAT.model())
+  column.position.y = 0.4 + 2.2
+  totem.add(shadow(column))
+  const crownMat = new THREE.MeshStandardMaterial({ color: C.mid, emissive: C.primary, emissiveIntensity: 0.6 })
+  const crown = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.16, 2.1), crownMat)
+  crown.position.y = 4.88
+  totem.add(crown)
+  const faces = []
+  const capFaces = []
+  for (let k = 0; k < 4; k++) {
+    const yaw = (k * Math.PI) / 2
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(1.64, 2.36), new THREE.MeshBasicMaterial({ color: '#d6d2df' }))
+    const cap = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 0.53), new THREE.MeshBasicMaterial({ color: '#c6c2cf', transparent: true }))
+    for (const [m, y] of [
+      [face, 3.05],
+      [cap, 1.25],
+    ]) {
+      m.position.set(Math.sin(yaw) * 1.012, y, Math.cos(yaw) * 1.012)
+      m.rotation.y = yaw
+      totem.add(m)
     }
-    const ex = { ...info, current: true }
-    current = makePoster(ex, generatedPoster(info), true)
-    layout()
+    faces.push(face)
+    capFaces.push(cap)
+    pickables.push(face)
   }
-  layout()
+  g.add(totem)
+
+  const currentEntry = {
+    group: totem,
+    img: faces[0],
+    ex: null,
+    isCurrent: true,
+    slotPos: c.clone(),
+    viewPos: c.clone().add(V(0.8, 2.8)),
+  }
+  posters.push(currentEntry)
+
+  function setCurrent(info) {
+    // 지난 학기 전시는 벽으로 옮겨 아카이브가 된다
+    if (currentEntry.ex) hangOnWall({ ...currentEntry.ex, current: false }, faces[0].material.map)
+    const ex = { ...info, current: true }
+    currentEntry.ex = ex
+    const tex = generatedPoster(info)
+    const capTex = captionTexture(`제${info.ordinal}회 · ${info.semester}`, info.title || '전시명 미정')
+    for (const f of faces) {
+      f.material.map = tex
+      f.material.needsUpdate = true
+      f.userData.pick = { type: 'poster', exhibition: ex }
+    }
+    for (const cf of capFaces) {
+      cf.material.map = capTex
+      cf.material.needsUpdate = true
+    }
+  }
 
   // 입구 배너
   const bannerCanvas = makeCanvas(1400, 200)
@@ -896,11 +996,11 @@ function buildGallery(teams) {
     new THREE.PlaneGeometry(7.0, 1.0),
     new THREE.MeshBasicMaterial({ map: bannerTex, color: '#c6c2cf', transparent: true, side: THREE.DoubleSide }),
   )
-  const entryZ = c.z + LAYOUT.galleryRadius - 1.6
+  const entryZ = c.z + half - 1.6
   banner.position.set(0, 3.25, entryZ)
   g.add(banner)
   for (const x of [-3.6, 3.6]) {
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, 3.8, 0.14), MAT.metal())
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.2, 3.8, 0.2), MAT.model())
     post.position.set(x, 1.9, entryZ)
     g.add(shadow(post))
   }
@@ -926,7 +1026,7 @@ function buildGallery(teams) {
     const pos = V(c.x + Math.cos(a) * 4.8, c.z - Math.sin(a) * 4.8)
     const pgp = new THREE.Group()
     pgp.position.copy(pos)
-    const box = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.0, 0.95), MAT.glass())
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.0, 0.95), MAT.modelDark())
     box.position.y = 0.5
     const edge = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.03, 0.98), new THREE.MeshBasicMaterial({ color: team.color }))
     edge.position.y = 1.0
@@ -948,28 +1048,9 @@ function buildGallery(teams) {
     return { group: pgp, pos, device: null, s: 0 }
   })
 
-  const light = new THREE.PointLight(C.light, 35, 30, 1.6)
-  light.position.set(c.x, 7, c.z)
+  const light = new THREE.PointLight(C.light, 45, 32, 1.6)
+  light.position.set(c.x, 8, c.z + 2)
   g.add(light)
-  const column = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.9, 1.4, 12, 32, 1, true),
-    new THREE.MeshBasicMaterial({
-      color: C.primary,
-      transparent: true,
-      opacity: 0,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    }),
-  )
-  column.position.set(c.x, 6, c.z)
-  g.add(column)
-
-  // 관람 동선: 포스터 앞 + 좌대 주변
-  const viewPoints = () => [
-    ...posters.map((p) => p.viewPos),
-    ...plinths.map((p) => p.pos.clone().add(V(c.x - p.pos.x, c.z - p.pos.z).setLength(1.6))),
-  ]
 
   let lastBanner = ''
   return {
@@ -980,8 +1061,9 @@ function buildGallery(teams) {
     plinths,
     posters,
     pickables,
-    viewPoints,
     setCurrent,
+    facers: [],
+    cutaways: Object.values(walls).map((w) => cutaway(w.group, ...w.out)),
     update(dt, t, sim) {
       const key = `${sim.current.ordinal}|${sim.exhibitionOpen}`
       if (key !== lastBanner) {
@@ -998,14 +1080,14 @@ function buildGallery(teams) {
           p.device.rotation.y += dt * 0.5
         }
       }
-      if (current) current.glow.material.opacity = sim.exhibitionOpen ? 0.55 + Math.sin(t * 2.4) * 0.2 : 0.12
-      column.material.opacity = lerp(column.material.opacity, sim.exhibitionOpen ? 0.1 : 0, Math.min(1, dt * 2))
+      crownMat.emissiveIntensity = sim.exhibitionOpen ? 1.8 + Math.sin(t * 2.4) * 0.6 : 0.6
     },
   }
 }
 
 /* ───────────────────────── 조립 ───────────────────────── */
-export function buildZones(scene, teams) {
+// view: { az } — 카메라 방위. 표지물(facer)과 컷어웨이가 이 값을 따른다.
+export function buildZones(scene, teams, view = { az: Math.PI / 4 }) {
   const zones = {
     agora: buildAgora(),
     D: buildD(teams),
@@ -1015,6 +1097,8 @@ export function buildZones(scene, teams) {
     gallery: buildGallery(teams),
   }
   for (const z of Object.values(zones)) scene.add(z.group)
+  const facers = Object.values(zones).flatMap((z) => z.facers ?? [])
+  const cutaways = Object.values(zones).flatMap((z) => z.cutaways ?? [])
 
   // 팀별 홈 스튜디오 자리(프로토타입 단계) — 같은 홈을 쓰는 팀은 앞줄부터 채운다
   const used = {}
@@ -1045,8 +1129,26 @@ export function buildZones(scene, teams) {
     zones,
     homeSpots,
     devices,
+    view,
     update(dt, t, sim) {
       for (const z of Object.values(zones)) z.update(dt, t, sim)
+      // 표지물은 카메라 쪽으로, 카메라를 가리는 구조물은 흐리게
+      const vx = Math.sin(view.az)
+      const vz = Math.cos(view.az)
+      for (const f of facers) {
+        let d = view.az + f.offset - f.obj.rotation.y
+        d = Math.atan2(Math.sin(d), Math.cos(d))
+        f.obj.rotation.y += d * Math.min(1, dt * 6)
+      }
+      for (const cw of cutaways) {
+        const target = cw.dir.x * vx + cw.dir.z * vz > 0.3 ? 0.16 : 1
+        const moving = Math.abs(cw.alpha - target) > 0.005
+        if (moving) cw.alpha = lerp(cw.alpha, target, Math.min(1, dt * 5))
+        else cw.alpha = target
+        // 흐려진 동안 새로 걸린 포스터도 같은 투명도를 갖도록 매 프레임 적용
+        if (moving || cw.alpha < 0.999 || cw.dirty) setFade(cw.obj, cw.alpha)
+        cw.dirty = moving
+      }
       devices.forEach((d, i) => {
         const p = sim.progress[i][4]
         const bucket = Math.round(p * 20)

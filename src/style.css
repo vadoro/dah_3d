@@ -71,7 +71,8 @@ button {
   position: absolute;
   bottom: 0;
   left: 0;
-  transform: translateX(-50%);
+  transform: translateX(-50%) scale(var(--label-scale, 1));
+  transform-origin: 50% 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -147,7 +148,9 @@ button {
 .agent-label.far {
   display: none;
 }
-.agent-label.far.speaking {
+.agent-label.far.speaking,
+.agent-label.far.selected,
+.agent-label.far.hover {
   display: block;
 }
 

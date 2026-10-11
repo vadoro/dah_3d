@@ -19,6 +19,8 @@ const ICON = {
     '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 1.5V5M12 19v3.5M1.5 12H5M19 12h3.5" stroke="currentColor" stroke-width="2"/></svg>',
   users:
     '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5" fill="currentColor"/><path d="M2.5 19c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5z" fill="currentColor"/><circle cx="17" cy="9" r="2.6" fill="currentColor" opacity=".7"/><path d="M16 13.6c2.9 0 4.9 1.6 5.5 4.4H17" fill="currentColor" opacity=".7"/></svg>',
+  rotL: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 6.5A7 7 0 1 1 5 12.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3.5 4.5l5.5 1.6-2.6 5z" fill="currentColor"/></svg>',
+  rotR: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 6.5A7 7 0 1 0 19 12.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M20.5 4.5L15 6.1l2.6 5z" fill="currentColor"/></svg>',
   list: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
 }
 
@@ -103,6 +105,8 @@ export function createHud(root, { teams, handlers }) {
       </div>
       <span class="sep"></span>
       <button class="btn on" data-act="auto" title="단계마다 카메라가 장면을 따라갑니다">${ICON.film}<span class="label">자동 연출</span></button>
+      <button class="btn icon" data-act="rot-l" title="시점을 왼쪽으로 90° 돌리기 (Q)" aria-label="왼쪽으로 회전">${ICON.rotL}</button>
+      <button class="btn icon" data-act="rot-r" title="시점을 오른쪽으로 90° 돌리기 (E)" aria-label="오른쪽으로 회전">${ICON.rotR}</button>
       <button class="btn mobile-only" data-act="m-teams" aria-label="팀 패널">${ICON.users}</button>
       <button class="btn mobile-only" data-act="m-log" aria-label="활동 기록">${ICON.list}</button>
       <span class="sep"></span>
@@ -147,6 +151,8 @@ export function createHud(root, { teams, handlers }) {
     if (act === 'play') handlers.onPlay()
     else if (act === 'restart') handlers.onRestart()
     else if (act === 'auto') handlers.onAuto()
+    else if (act === 'rot-l') handlers.onRotate(-1)
+    else if (act === 'rot-r') handlers.onRotate(1)
     else if (act === 'names') handlers.onNames()
     else if (act === 'bloom') handlers.onBloom()
     else if (act === 'about') openAbout()
@@ -173,7 +179,7 @@ export function createHud(root, { teams, handlers }) {
     <div class="sheet panel" role="dialog" aria-modal="true" aria-labelledby="intro-title">
       <div class="eyebrow">${esc(DAH.university)} ${esc(DAH.nameKr)} · ${esc(DAH.nameEn)}</div>
       <h1 id="intro-title">${esc(DAH.ciConcept.title)}</h1>
-      <p class="lead">교수와 학생이 원탁에서 만나 토론하고, D · A · H 세 스튜디오를 오가며 함께 프로젝트를 만들어 프로젝트 전시회에 이르는 <b>한 학기 16주</b>를 3D 공간에서 시뮬레이션합니다. 좋은 아이디어는 별이 되어 원탁 위 하늘에 팀별 별자리로 쌓입니다.</p>
+      <p class="lead">교수와 학생이 원탁에서 만나 토론하고, D · A · H 세 스튜디오를 오가며 함께 프로젝트를 만들어 프로젝트 전시회에 이르는 <b>한 학기 16주</b>를 등각(isometric) 디오라마로 시뮬레이션합니다. 좋은 아이디어는 별이 되어 원탁 위 하늘에 팀별 별자리로 쌓입니다.</p>
       <h2>공간</h2>
       <div class="cols3">
         <div class="card"><div class="big" style="color:#C8B9F2">D</div><div class="ct">D 스튜디오 · 디자인</div><div class="cd">열린 곡선 벽에 포스트잇이 쌓이는 문제 정의의 공간. ${esc(DAH.letters.D.body)}</div></div>
@@ -185,7 +191,7 @@ export function createHud(root, { teams, handlers }) {
         ${PHASES.map((p, i) => `${i ? '<span class="a">›</span>' : ''}<span class="s">${esc(p.title)}</span>`).join('')}
       </div>
       <h2>조작</h2>
-      <p style="font-size:13px"><span class="kbd">드래그</span> 회전 · <span class="kbd">스크롤</span> 확대 · <span class="kbd">우클릭 드래그</span> 이동 · 인물이나 포스터를 <span class="kbd">클릭</span>하면 정보 · <span class="kbd">Space</span> 재생/일시정지 · 상단 주차 막대를 클릭하면 그 주로 이동</p>
+      <p style="font-size:13px"><span class="kbd">드래그</span> 이동 · <span class="kbd">스크롤</span> 확대 · <span class="kbd">Q</span> <span class="kbd">E</span> 또는 ⟲ ⟳ 버튼으로 시점 90° 회전 · 인물이나 포스터를 <span class="kbd">클릭</span>하면 정보 · <span class="kbd">Space</span> 재생/일시정지 · 상단 주차 막대를 클릭하면 그 주로 이동</p>
       <div class="intro-actions">
         <button class="btn primary" data-close>${ICON.play}시뮬레이션 시작</button>
         <button class="btn" data-about>${ICON.info}전공 소개 보기</button>
@@ -223,7 +229,7 @@ export function createHud(root, { teams, handlers }) {
       <h2>교육 설계: 동기 → 효능감 → 진로</h2>
       <div class="cols3">${DAH.pedagogy.map((p) => `<div class="card"><div class="ct">${esc(p.title)}</div><div class="cd">${esc(p.detail)}</div></div>`).join('')}</div>
       <h2>프로젝트 전시회</h2>
-      <p>2017년 2학기 첫 전시회 이후 매 학기 열어 ${DAH.exhibitions.length}회를 이어 왔습니다. 가장 최근 전시는 ${DAH.exhibitions.at(-1).semester} 「${esc(DAH.exhibitions.at(-1).title)}」. 전시 섬의 나선형 포스터 벽에서 역대 전시를 모두 볼 수 있습니다.</p>
+      <p>2017년 2학기 첫 전시회 이후 매 학기 열어 ${DAH.exhibitions.length}회를 이어 왔습니다. 가장 최근 전시는 ${DAH.exhibitions.at(-1).semester} 「${esc(DAH.exhibitions.at(-1).title)}」. 전시 섬의 ㄷ자 포스터 벽에서 역대 전시를 모두 볼 수 있습니다.</p>
       <h2>${esc(DAH.next.title)}</h2>
       <p class="muted" style="margin-bottom:10px">${esc(DAH.next.lead)}</p>
       <div class="cols3">${DAH.next.items.map((p) => `<div class="card"><div class="ct">${esc(p.title)}</div><div class="cd">${esc(p.detail)}</div></div>`).join('')}</div>
